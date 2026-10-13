@@ -9,22 +9,25 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Qu
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse, StreamingResponse
 # pyrefly: ignore [missing-import]
-from pydantic import EmailStr, TypeAdapter, ValidationError
-# pyrefly: ignore [missing-import]
 from pymongo.errors import PyMongoError
+# pyrefly: ignore [missing-import]
+from starlette.concurrency import run_in_threadpool
 
 from config import settings, get_vanika_db
-from Vanika_Mailing.helpers import send_email
+from Vanika_Mailing.crypto import cipher_error, get_cipher
+from Vanika_Mailing.email_policy import EmailPolicy
 from Vanika_Mailing.email_templates import vanika_subscribe_admin, vanika_subscribe_user
-from Vanika_Mailing.security import client_ip, require_admin, subscribe_limiter
+from Vanika_Mailing.mailer import send_mail
+from Vanika_Mailing.security import client_ip, require_admin, subscribe_limiter, verify_turnstile
 from Vanika_Mailing.waitlist import WaitlistRepository
 
 router = APIRouter()
 
-_email_adapter = TypeAdapter(EmailStr)
+email_policy = EmailPolicy(mode=settings.VANIKA_EMAIL_POLICY, check_dns=settings.VANIKA_EMAIL_DNS_CHECK)
+
 CSV_COLUMNS = [
-    "email", "createdAt", "lastSignupAt", "firstSource", "sources", "signupCount",
-    "status", "referrer", "utmSource", "utmMedium", "utmCampaign",
+    "email", "emailType", "domain", "createdAt", "lastSignupAt", "firstSource", "sources",
+    "signupCount", "status", "referrer", "utmSource", "utmMedium", "utmCampaign",
 ]
 
 
@@ -34,7 +37,7 @@ _indexes_ready = False
 async def ensure_waitlist_indexes(waitlist: WaitlistRepository) -> bool:
     """Create the waitlist indexes once per process; retried until it succeeds.
 
-    The unique email index is what prevents duplicate rows when two first
+    The unique email_hash index is what prevents duplicate rows when two first
     sign-ups for the same address race, so it must not be skipped just because
     Atlas was unreachable at startup.
     """
@@ -50,15 +53,27 @@ async def ensure_waitlist_indexes(waitlist: WaitlistRepository) -> bool:
     return _indexes_ready
 
 
+def storage_unavailable_reason() -> Optional[str]:
+    if get_vanika_db() is None:
+        return "MONGODB_URI is not set"
+    if get_cipher(settings.VANIKA_ENCRYPTION_KEY) is None:
+        return cipher_error()
+    return None
+
+
 def get_waitlist() -> Optional[WaitlistRepository]:
     db = get_vanika_db()
-    if db is None:
+    cipher = get_cipher(settings.VANIKA_ENCRYPTION_KEY)
+    if db is None or cipher is None:
         return None
-    return WaitlistRepository(db[settings.VANIKA_WAITLIST_COLLECTION])
+    return WaitlistRepository(db[settings.VANIKA_WAITLIST_COLLECTION], cipher)
 
 
-def _failed(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"status": "Failed", "code": code, "message": message})
+def _failed(status_code: int, code: str, message: str, **extra) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "Failed", "code": code, "message": message, **extra},
+    )
 
 
 def _clean(value: Optional[str], max_len: int = 200) -> Optional[str]:
@@ -66,13 +81,6 @@ def _clean(value: Optional[str], max_len: int = 200) -> Optional[str]:
         return None
     value = value.strip()
     return value[:max_len] or None
-
-
-def _normalize_email(raw: str) -> Optional[str]:
-    try:
-        return str(_email_adapter.validate_python(raw.strip())).lower()
-    except ValidationError:
-        return None
 
 
 @router.get("/ping")
@@ -87,17 +95,20 @@ async def ping():
 async def subscribe(
     request: Request,
     background_tasks: BackgroundTasks,
-    clientemail: str = Form(...),
+    clientemail: str = Form(..., max_length=320),
     accesskey: str = Form(""),
     source: str = Form("unknown"),
     website: str = Form(""),  # honeypot — humans never see or fill it
+    turnstile_token: str = Form("", alias="cf-turnstile-response"),
+    keep_email: str = Form(""),  # "1" when the visitor dismissed the typo hint
     referrer: Optional[str] = Form(None),
     utm_source: Optional[str] = Form(None),
     utm_medium: Optional[str] = Form(None),
     utm_campaign: Optional[str] = Form(None),
     waitlist: Optional[WaitlistRepository] = Depends(get_waitlist),
 ):
-    if not subscribe_limiter.allow(client_ip(request)):
+    ip = client_ip(request)
+    if not subscribe_limiter.allow(ip):
         return _failed(429, "RATE_LIMITED", "Too many attempts. Please wait a minute and try again.")
 
     if settings.VANIKA_ROUTES_KEY and not secrets.compare_digest(
@@ -110,9 +121,17 @@ async def subscribe(
         print("[Vanika] Honeypot triggered — sign-up ignored")
         return {"status": "Success", "message": "You're on the list.", "alreadySubscribed": False}
 
-    email = _normalize_email(clientemail)
-    if email is None:
-        return _failed(422, "INVALID_EMAIL", "Please enter a valid email address.")
+    if not await verify_turnstile(turnstile_token, ip):
+        return _failed(
+            403, "BOT_CHECK_FAILED", "We couldn't verify you're human. Please refresh the page and try again."
+        )
+
+    # Syntax, no-reply mailboxes, typos, disposable domains, MX records (DNS is blocking)
+    verdict = await run_in_threadpool(email_policy.evaluate, clientemail, keep_email == "1")
+    if not verdict.ok:
+        extra = {"suggestion": verdict.suggestion} if verdict.suggestion else {}
+        return _failed(422, verdict.code, verdict.message, **extra)
+    email = verdict.email
 
     source = _clean(source, 40) or "unknown"
     metadata = {
@@ -127,44 +146,48 @@ async def subscribe(
     stored = False
     is_new = True
     if waitlist is None:
-        print("[Vanika] [WARN] MongoDB not configured — sign-up NOT stored, sending emails only")
+        print(f"[Vanika] [WARN] Storage unavailable ({storage_unavailable_reason()}) — sign-up emailed only")
     else:
         try:
             await ensure_waitlist_indexes(waitlist)
-            result = await waitlist.add_signup(email, source, metadata)
+            result = await waitlist.add_signup(email, source, verdict.email_type, metadata)
             stored, is_new = True, result.is_new
         except PyMongoError as e:
             print(f"[Vanika] [FAIL] Could not store sign-up: {e}")
 
     if is_new:
         # Respond immediately; the emails go out after the response is sent.
-        background_tasks.add_task(_send_signup_emails, waitlist if stored else None, email, source, stored)
-        print(f"[Vanika] New waitlist sign-up via {source} (stored={stored})")
+        background_tasks.add_task(
+            _send_signup_emails, waitlist if stored else None, email, source, verdict.email_type, stored
+        )
+        print(f"[Vanika] New waitlist sign-up via {source} ({verdict.email_type}, stored={stored})")
         return {"status": "Success", "message": "You're on the list.", "alreadySubscribed": False}
 
     return {"status": "Success", "message": "You're already on the list.", "alreadySubscribed": True}
 
 
 async def _send_signup_emails(
-    waitlist: Optional[WaitlistRepository], email: str, source: str, stored: bool
+    waitlist: Optional[WaitlistRepository], email: str, source: str, email_type: str, stored: bool
 ) -> None:
     total = None
     if waitlist is not None:
         try:
-            total = await waitlist.collection.count_documents({})
+            total = await waitlist.count()
         except PyMongoError:
             pass
 
-    admin_result = await send_email(
+    # Team notification -> info@vanika.ai (+ optional hidden copy); "Reply" answers the subscriber
+    admin_result = await send_mail(
         subject=f"Vanika.ai - New waitlist sign-up: {email}",
-        html=vanika_subscribe_admin(email, source=source, total=total, stored=stored),
+        html=vanika_subscribe_admin(email, source=source, total=total, stored=stored, email_type=email_type),
+        bcc=[settings.EMAIL_BCC_FALLBACK_1] if settings.EMAIL_BCC_FALLBACK_1 else None,
+        reply_to=email,
     )
-    # Confirmation to the subscriber only — no dev BCC
-    user_result = await send_email(
+    # Welcome email -> subscriber; replies land in info@vanika.ai
+    user_result = await send_mail(
         subject="You're on the Vanika.ai waitlist",
         html=vanika_subscribe_user(),
         to=email,
-        onlySender=True,
     )
 
     if waitlist is not None:
@@ -185,7 +208,7 @@ async def _send_signup_emails(
 # ---------------------------------------------------------
 def _require_storage(waitlist: Optional[WaitlistRepository]) -> WaitlistRepository:
     if waitlist is None:
-        raise HTTPException(status_code=503, detail="STORAGE_UNAVAILABLE: set MONGODB_URI on the server")
+        raise HTTPException(status_code=503, detail=f"STORAGE_UNAVAILABLE: {storage_unavailable_reason()}")
     return waitlist
 
 

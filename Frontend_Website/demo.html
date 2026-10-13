@@ -15940,7 +15940,7 @@ ${mgb("settings", "<svg viewBox='0 0 16 16'><circle cx='8' cy='8' r='3'/><path d
       <div class="sh"><div class="sh-l"><div class="sh-title">Profile</div></div></div>
       <div class="col">
         <div class="inpg"><div class="inpl">Full name</div><input class="inp" value="Nihitha Yedla"></div>
-        <div class="inpg"><div class="inpl">Email</div><input class="inp" value="nihitha.yedla@anvi.co"></div>
+        <div class="inpg"><div class="inpl">Email</div><input class="inp" value="info@vanika.ai"></div>
         <div class="inpg"><div class="inpl">Organisation</div><input class="inp" value="Anvi Robotics Pvt. Ltd."></div>
       </div>
       <div style="margin-top:14px;display:flex;justify-content:flex-end"><button class="btn bs" onclick="toast('Profile','Profile saved.');const sel=document.getElementById('theme-select');if(sel)applyTheme(sel.value);">Save changes</button></div>
@@ -15983,7 +15983,7 @@ ${mgb("profile", "<svg viewBox='0 0 16 16'><circle cx='8' cy='5' r='3'/><path d=
   </div>
   <div class="col">
     <div class="inpg"><div class="inpl">Full name</div><input class="inp" value="Nihitha Yedla"></div>
-    <div class="inpg"><div class="inpl">Email</div><input class="inp" value="nihitha.yedla@anvi.co"></div>
+    <div class="inpg"><div class="inpl">Email</div><input class="inp" value="info@vanika.ai"></div>
     <div class="inpg"><div class="inpl">Organisation</div><input class="inp" value="Anvi Robotics Pvt. Ltd."></div>
   </div>
   <div class="div"></div>
@@ -17257,7 +17257,7 @@ ${mgb("onboarding", "<svg viewBox='0 0 16 16'><path d='M8 1l2 4 4.5.7-3.2 3.1.7 
 <div class="mod">
   <div class="sh"><div class="sh-l"><div class="sh-title">Notification Preferences</div><div class="sh-sub">Nihitha Yedla · all channels</div></div></div>
   <div class="sh"><div class="sh-l"><div class="sh-title" style="font-size:13px">Channels</div></div></div>
-  ${[['In-app notifications', 'Vanika', true], ['Email', 'nihitha.yedla@anvi.co', true], ['Slack', '#vanika-alerts', true], ['Mobile push', 'Vanika iOS app', false]].map(([n, sub, on]) => '<div class="srow"><div class="srowl"><div class="srown">' + n + '</div><div class="srowd">' + sub + '</div></div><label class="toggle"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toast(\'Setting\',\'' + n + ' updated.\')"><span class="tslider"></span></label></div>').join('')}
+  ${[['In-app notifications', 'Vanika', true], ['Email', 'info@vanika.ai', true], ['Slack', '#vanika-alerts', true], ['Mobile push', 'Vanika iOS app', false]].map(([n, sub, on]) => '<div class="srow"><div class="srowl"><div class="srown">' + n + '</div><div class="srowd">' + sub + '</div></div><label class="toggle"><input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toast(\'Setting\',\'' + n + ' updated.\')"><span class="tslider"></span></label></div>').join('')}
   <div class="div"></div>
   <div class="sh"><div class="sh-l"><div class="sh-title" style="font-size:13px">Event types</div></div></div>
   ${[['Fleet alerts (battery, sensor)', 'Critical', true, true, true], ['Build pass/fail', 'All', true, true, false], ['Sim run complete', 'All', true, false, false], ['LRB changes', 'All', true, true, false], ['OTA deploy status', 'All', true, true, false], ['Team activity', 'Digest', false, false, false]].map(([n, freq, app, email, slack]) => '<div class="srow"><div class="srowl"><div class="srown">' + n + '</div><div class="srowd">' + freq + '</div></div><div style="display:flex;gap:10px;font-size:11px;color:var(--ink3)"><label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ' + (app ? 'checked' : '') + ' style="width:13px;height:13px;accent-color:var(--sage)">App</label><label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ' + (email ? 'checked' : '') + ' style="width:13px;height:13px;accent-color:var(--sage)">Email</label><label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" ' + (slack ? 'checked' : '') + ' style="width:13px;height:13px;accent-color:var(--sage)">Slack</label></div></div>').join('')}

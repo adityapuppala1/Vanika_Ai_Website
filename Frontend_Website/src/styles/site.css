@@ -407,7 +407,7 @@ input:-webkit-autofill:active {
 .waitlist-error.show {
   opacity: 1;
   visibility: visible;
-  max-height: 60px;
+  max-height: 120px;
   margin-top: 6px;
 }
 
@@ -1169,4 +1169,23 @@ footer {
 .waitlist-success a {
   text-decoration: underline;
   text-underline-offset: 2px
+}
+
+.waitlist-error .suggestion {
+  font: inherit;
+  color: var(--pearl);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+  margin-left: 2px;
+}
+
+.turnstile-slot:empty {
+  display: none
+}
+
+.turnstile-slot {
+  width: 100%;
+  display: flex;
+  justify-content: center
 }

@@ -4,19 +4,20 @@
 |---|---|
 | **Status** | Implemented on branch `V2` |
 | **Scope** | vanika.ai marketing site, waitlist capture, waitlist admin dashboard |
-| **Related** | [PLAN.md](PLAN.md) (rollout & roadmap), [README](../README.md) (setup) |
+| **Related** | [DEPLOYMENT.md](DEPLOYMENT.md) (production runbook), [PLAN.md](PLAN.md) (roadmap), [README](../README.md) (dev setup) |
 
 ## 1. Goals
 
-1. **Every waitlist sign-up is stored**, so the team can see how many people joined, when, and from which form.
-   Before V2, sign-ups were only emailed and never saved.
-2. **No duplicates.** One record per person, even if they submit twice or use different capitalisation.
-3. **The team can retrieve the list** without database access: a dashboard, a CSV export and an API.
-4. **Email problems are visible.** Each record shows whether the team notification and welcome email were
-   delivered.
-5. **No regressions for the other sites** (Anvi Robotics, TheBotFactory, InvestorDesk) that share the same backend.
-
-Non-goals for now: sending launch or invite campaigns, user accounts, and a marketing CRM.
+1. **Every waitlist sign-up is stored, encrypted**, so the team can see how many people joined, when, from which form
+   and with what kind of address. The addresses themselves are unreadable without the application key.
+2. **Only real people with real addresses get in.** Work, school/university and well-known personal addresses are
+   accepted. Disposable inboxes, typos, no-reply mailboxes and domains that can't receive mail are rejected. Bots
+   are stopped before they reach the database or trigger emails.
+3. **No duplicates.** One record per person, even if they submit twice or change capitalisation.
+4. **One mailbox for everything:** `info@vanika.ai` sends the welcome email, receives the team notifications, and
+   receives subscribers' replies.
+5. **The team can retrieve the list** without database access: a dashboard, a CSV export and an API.
+6. **No regressions for the other sites** (Anvi Robotics, TheBotFactory, InvestorDesk) that share the backend.
 
 ## 2. System context
 
@@ -26,18 +27,23 @@ flowchart LR
     admin([Vanika team]) -->|"vanika.ai/admin"| swa
 
     subgraph Azure
-        swa["Static Web Apps<br/>Frontend_Website<br/>(Vite build: /, /admin, /demo)"]
+        swa["Static Web Apps<br/>Frontend_Website<br/>(/, /admin, /demo)"]
         app["App Service: MailsBackend<br/>Backend_Website (FastAPI)"]
-        acs["Communication Services<br/>(Email)"]
+        kv["Key Vault<br/>(encryption key, secrets)"]
     end
 
-    atlas[("MongoDB Atlas<br/>VanikaWaitlist")]
+    cf["Cloudflare Turnstile<br/>(bot check)"]
+    atlas[("MongoDB Atlas<br/>VanikaWaitlist<br/>(encrypted emails)")]
+    m365["Microsoft 365<br/>info@vanika.ai<br/>(Graph API / SMTP)"]
 
-    swa -. "browser fetch<br/>POST /vanika/subscribe<br/>GET /vanika/admin/*" .-> app
+    swa -. "POST /vanika/subscribe<br/>GET /vanika/admin/*" .-> app
+    swa -. "widget" .-> cf
+    app -->|"verify token"| cf
     app --> atlas
-    app --> acs
-    acs -->|"team notification"| inbox([Team inbox])
-    acs -->|"welcome email"| visitor
+    app --> m365
+    kv -. "app settings" .-> app
+    m365 -->|"welcome email"| visitor
+    m365 -->|"team notification"| admin
 
     other["Anvi Robotics, TheBotFactory,<br/>InvestorDesk sites"] -. "/anvi/*, /investorDesk/*" .-> app
 ```
@@ -45,12 +51,11 @@ flowchart LR
 | Component | Technology | Hosting | Responsibility |
 |---|---|---|---|
 | Frontend | Static HTML/CSS/JS, Vite 8 | Azure Static Web Apps | Landing page, waitlist forms, admin dashboard UI |
-| Backend | FastAPI (Python 3.10) | Azure App Service `MailsBackend` | Validation, storage, email, admin API. **Shared with other sites.** |
-| Database | MongoDB Atlas (driver: motor) | Atlas | Waitlist records (`VanikaWaitlist`); InvestorDesk data |
-| Email | Azure Communication Services | Azure | Team notification + subscriber welcome email |
-
-The browser talks to the backend directly; there is no server-side rendering. The admin dashboard is a static page,
-so all access control happens in the backend through the admin key.
+| Backend | FastAPI (Python 3.10) | Azure App Service `MailsBackend` | Validation, spam checks, encryption, storage, email, admin API. **Shared with other sites.** |
+| Database | MongoDB Atlas (motor driver) | Atlas | `VanikaWaitlist` (Vanika); InvestorDesk data |
+| Email | Microsoft 365 mailbox `info@vanika.ai` | Microsoft | Graph `sendMail` (recommended) or SMTP AUTH (bridge until Dec 2026) |
+| Bot check | Cloudflare Turnstile | Cloudflare | Optional invisible challenge on the forms |
+| Secrets | Azure Key Vault | Azure | Encryption key, admin key, mail and DB credentials |
 
 ## 3. Key flows
 
@@ -61,33 +66,50 @@ sequenceDiagram
     autonumber
     participant B as Browser (src/main.js)
     participant API as FastAPI /vanika/subscribe
-    participant DB as MongoDB VanikaWaitlist
-    participant ACS as Azure Email
+    participant CF as Turnstile
+    participant DNS as DNS (MX)
+    participant DB as MongoDB
+    participant M as Microsoft 365 (info@vanika.ai)
 
-    B->>B: Client-side email check
-    B->>API: POST form: clientemail, source, accesskey, website (honeypot), utm_*, referrer
-    API->>API: Rate limit (per IP) -> access key -> honeypot -> validate and lowercase email
-    API->>DB: Upsert by email ($setOnInsert, $inc signup_count, $addToSet sources)
+    B->>API: POST clientemail, source, cf-turnstile-response, website (honeypot), utm_*
+    API->>API: Rate limit per IP, access key, honeypot
+    API->>CF: Verify Turnstile token (if enabled)
+    API->>API: Email policy: syntax, no-reply, typo, disposable list
+    API->>DNS: MX lookup for unfamiliar domains (cached 1h)
+    API->>DB: Upsert by email_hash (blind index), store AES-256-GCM ciphertext
     alt New person
         API-->>B: 200 Success, alreadySubscribed=false
-        Note over API,ACS: After the response (background task)
-        API->>ACS: Team notification (to EMAIL_PRIMARY_VANIKA, BCC fallback)
-        API->>ACS: Welcome email (to subscriber)
-        API->>DB: Save email_status (sent / failed)
+        Note over API,M: After the response (background task)
+        API->>M: Team notification to info@vanika.ai (Reply goes to the subscriber)
+        API->>M: Welcome email to subscriber (Reply goes to info@vanika.ai)
+        API->>DB: Save email_status (sent / failed + reason)
     else Already on the list
-        API-->>B: 200 Success, alreadySubscribed=true (no emails sent)
+        API-->>B: 200 Success, alreadySubscribed=true (no emails)
     end
-    B->>B: Show "You're on the list" or "You're already on the list"
 ```
 
-**Error responses** use the shape `{"status": "Failed", "code": ..., "message": ...}`:
+**Rejections** return `{"status": "Failed", "code", "message", "suggestion"?}`. The page shows `message`; for a typo
+it also offers a one-click fix.
 
-| HTTP | `code` | When | What the visitor sees |
+| HTTP | `code` | Trigger | Example |
 |---|---|---|---|
-| 422 | `INVALID_EMAIL` | Server-side validation fails | "Please enter a valid email address." |
-| 403 | `INVALID_ACCESS_KEY` | `accesskey` doesn't match `VANIKA_ROUTES_KEY` | Generic error |
-| 429 | `RATE_LIMITED` | More than `VANIKA_SUBSCRIBE_RATE_LIMIT` attempts/min from one IP | "Too many attempts…" |
-| — | (network) | Backend unreachable | "We couldn't reach our server…" |
+| 422 | `INVALID_EMAIL` | Malformed address | `ada@`, `a b@c.com` |
+| 422 | `EMAIL_TYPO` | One letter off a major provider, or `.con`/`.co` slips | `ada@outlok.com` → suggests `ada@outlook.com`; the visitor can also choose **Keep my address** |
+| 422 | `DISPOSABLE_EMAIL` | Domain (or parent) on the ~9,900-entry disposable list | `x@mailinator.com`, `x@10minutemail.com` |
+| 422 | `ROLE_EMAIL` | System mailbox, not a person | `noreply@…`, `postmaster@…` |
+| 422 | `UNDELIVERABLE_DOMAIN` | No MX/A record, or null MX | `ada@example.com`, non-existent domains |
+| 422 | `PERSONAL_EMAIL_NOT_ALLOWED` | Only with `VANIKA_EMAIL_POLICY=work_or_school` | `ada@gmail.com` |
+| 403 | `BOT_CHECK_FAILED` | Turnstile token missing/invalid (when enabled) | Scripted posts |
+| 403 | `INVALID_ACCESS_KEY` | `accesskey` ≠ `VANIKA_ROUTES_KEY` | — |
+| 429 | `RATE_LIMITED` | More than `VANIKA_SUBSCRIBE_RATE_LIMIT`/min from one IP | — |
+
+**Email type** is recorded for every accepted address:
+
+| Type | Rule | Examples |
+|---|---|---|
+| `education` | `.edu`, `.edu.xx`, `.ac.xx`, `.sch.xx`, `.k12.xx.us` | `iitb.ac.in`, `stanford.edu`, `ox.ac.uk` |
+| `personal` | Curated list of well-known providers | Gmail, Outlook/Hotmail, Yahoo, iCloud, Proton, Zoho, Rediff… |
+| `work` | Everything else that passes the checks | `tcs.com`, `anvi.co` |
 
 ### 3.2 Viewing the waitlist
 
@@ -99,16 +121,15 @@ sequenceDiagram
 
     A->>API: GET /stats with X-Admin-Key
     API->>API: Lockout check, then constant-time key compare
-    API->>DB: count_documents / distinct / find (last 30 days)
-    API-->>A: totals, daily series, by-source
-    A->>API: GET /subscribers?search=&limit=&offset=
-    API-->>A: page of records
+    API->>DB: counts, distinct(first_source / email_type), last-30-day dates
+    API-->>A: totals, daily series, by form, by email type
+    A->>API: GET /subscribers?search=
+    API->>DB: find
+    API->>API: Decrypt email_enc, then substring search
+    API-->>A: page of records (decrypted for the admin only)
     A->>API: GET /subscribers/export.csv
-    API-->>A: CSV file (formula-safe)
+    API-->>A: CSV (decrypted, formula-safe)
 ```
-
-The key is kept in `sessionStorage`, so it is cleared when the tab closes. The dashboard renders all data with
-`textContent`, never as HTML.
 
 ## 4. Data model
 
@@ -116,130 +137,153 @@ The key is kept in `sessionStorage`, so it is cleared when the tab closes. The d
 
 | Field | Type | Set | Meaning |
 |---|---|---|---|
-| `email` | string | insert | Lowercased, validated address. **Unique.** |
-| `created_at` | date (UTC) | insert | First sign-up |
-| `last_signup_at` | date (UTC) | every sign-up | Most recent sign-up |
+| `email_hash` | string (hex) | insert | HMAC-SHA256 blind index of the normalised address. **Unique.** Used for dedupe, lookup and delete. |
+| `email_enc` | string | insert | `v1:` + base64(nonce ‖ AES-256-GCM ciphertext ‖ tag) of the address. `email_hash` is bound as associated data, so a ciphertext moved to another record will not decrypt. |
+| `email_domain` | string | insert | Domain part, kept in plaintext for statistics (e.g. how many from one company) |
+| `email_type` | string | insert | `work`, `education` or `personal` |
+| `key_version` | string | insert | Encryption scheme version (`v1`) |
+| `created_at` / `last_signup_at` | date (UTC) | insert / every sign-up | First and most recent sign-up |
 | `signup_count` | int | `$inc` | Times this person submitted a form |
-| `first_source` | string | insert | `hero`, `final_cta` or `unknown` (older frontend) |
-| `sources` | string[] | `$addToSet` | Every form they used |
-| `status` | string | insert | `active` (reserved for a future `unsubscribed`) |
-| `metadata` | object | insert | `utm_source`, `utm_medium`, `utm_campaign`, `referrer`, `user_agent`, each only when present |
+| `first_source` / `sources` | string / string[] | insert / `$addToSet` | `hero`, `final_cta` (or `unknown` from older frontends) |
+| `status` | string | insert | `active` (reserved: `unsubscribed`) |
+| `metadata` | object | insert | `utm_source`, `utm_medium`, `utm_campaign`, `referrer`, `user_agent`, each when present |
 | `email_status` | object | after send | `{admin, user}`: `pending`, `sent` or `failed` |
-| `email_error` | string | after send | Provider error, only when a send failed |
+| `email_error` | string | after send | Provider error when a send failed |
 
-**Indexes:** `email` (unique) and `created_at` (descending). The backend creates them at startup, and the first
-sign-up retries if startup creation failed.
-
-Example document:
+**Indexes:** `email_hash` (unique), `created_at` (desc). Created at startup and retried on the first sign-up. The
+legacy `email_1` index from pre-encryption builds is dropped, and plaintext records are encrypted in place, automatically.
 
 ```json
 {
-  "email": "priya@robotics-lab.in",
+  "email_hash": "3f9c…e1",
+  "email_enc": "v1:Gx2…Qw==",
+  "email_domain": "robotics-lab.in",
+  "email_type": "work",
+  "key_version": "v1",
   "created_at": "2026-10-13T12:47:55.875Z",
-  "last_signup_at": "2026-10-13T12:47:58.232Z",
   "signup_count": 2,
   "first_source": "hero",
   "sources": ["hero", "final_cta"],
   "status": "active",
-  "metadata": { "utm_source": "linkedin", "utm_campaign": "launch" },
+  "metadata": { "utm_source": "linkedin" },
   "email_status": { "admin": "sent", "user": "sent" }
 }
 ```
 
-The raw IP address is not stored. It is used only in memory for rate limiting.
+The raw IP address is never stored. It is used only in memory for rate limiting.
 
 ## 5. Security model
 
+### 5.1 Encryption
+
+| Layer | Mechanism |
+|---|---|
+| Browser ↔ site | HTTPS only (Azure SWA), HSTS `max-age=31536000; includeSubDomains` |
+| Browser ↔ API | HTTPS only (App Service *HTTPS Only*, TLS ≥ 1.2), HSTS on every API response |
+| API ↔ MongoDB | TLS (`mongodb+srv`), Atlas encryption at rest |
+| **Stored email addresses** | **Application-level AES-256-GCM** (authenticated, random 96-bit nonce per value). Keys are derived with HKDF-SHA256 from `VANIKA_ENCRYPTION_KEY`, kept in Key Vault. A database leak or backup copy alone does not reveal addresses. |
+| Lookups without decryption | HMAC-SHA256 blind index (separate HKDF-derived key) |
+| API ↔ Microsoft 365 | Graph over HTTPS with OAuth client credentials, or SMTP STARTTLS on 587 with certificate verification |
+| Secrets | Key Vault / App Service settings and GitHub secrets only; `.env` is gitignored |
+
+### 5.2 Abuse and access controls
+
 | Threat | Control | Where |
 |---|---|---|
-| Bots spamming the form or sending emails to third parties | Honeypot field (fake success), per-IP rate limit, server-side validation, no emails for repeats | `routes.py`, `security.py` |
-| IP spoofing to dodge limits | Use the **last** `X-Forwarded-For` hop, which Azure appends | `security.py: client_ip` |
-| Unauthorised data access | `X-Admin-Key` with constant-time compare; 10 failures per 5 min locks the IP out (checked *before* the compare) | `security.py: require_admin` |
-| HTML injection into team emails | `html.escape` on email and source | `email_templates.py` |
-| CSV formula injection | Values starting with `= + - @` are prefixed with `'` | `routes.py: _csv_safe` |
-| Cross-site use of the API | Origin firewall + CORS allow-list (`CORS_ORIGINS`) | `main.py` |
-| Admin page indexed by search engines | `noindex` meta, `X-Robots-Tag`, robots.txt | `admin.html`, SWA config |
-
-`VANIKA_ROUTES_KEY` / `VITE_MAIL_ACCESS_KEY` ships inside the public JavaScript bundle. It is a light filter, **not a
-secret**. The real protections are the controls above.
+| Bots / scripted sign-ups | Turnstile (optional), honeypot field (fake success), per-IP rate limit | `security.py`, `routes.py`, `src/main.js` |
+| Fake or throwaway addresses | Disposable-domain list, MX check, typo catch, no-reply check | `email_policy.py` |
+| Using the form to email third parties | All of the above; no emails for repeats | `routes.py` |
+| IP spoofing to dodge limits | Use the **last** `X-Forwarded-For` hop (appended by Azure) | `security.py` |
+| Unauthorised data access | `X-Admin-Key`, constant-time compare, 10 failures / 5 min lockout checked before the compare | `security.py` |
+| HTML injection into team emails | `html.escape` on every interpolated value | `email_templates.py` |
+| CSV formula injection | Cells starting with `= + - @` are prefixed with `'` | `routes.py` |
+| Cross-site use of the API | Origin firewall + CORS allow-list | `main.py` |
+| Admin page discovery | `noindex`, `X-Robots-Tag`, robots.txt, `Cache-Control: no-store` | `admin.html`, SWA config |
 
 ## 6. Failure behaviour
 
 | Failure | Behaviour | How you notice |
 |---|---|---|
-| MongoDB not configured | Sign-ups are still emailed to the team, marked "could not be saved"; the dashboard says storage is unavailable | Startup log `[Vanika] [WARN]`, dashboard banner |
-| MongoDB error on write | Same as above for that sign-up | Log `[Vanika] [FAIL] Could not store sign-up` |
-| Email provider down or misconfigured | Sign-up is stored; `email_status` = `failed` with the reason | Red ✕ in the dashboard "Emails sent" column |
-| Two first sign-ups race on the same email | Unique index rejects one; it retries as an update | — |
-| Index creation fails at startup | Retried on the next sign-up | Log `[Vanika] [FAIL] Could not ensure waitlist indexes` |
-| Backend scaled to several instances | Each instance keeps its own rate-limit window (limit is per instance) | — (acceptable; see Plan) |
+| `MONGODB_URI` or `VANIKA_ENCRYPTION_KEY` missing/invalid | Storage disabled; sign-ups still emailed to the team with a "could not be saved" warning | Startup log `storage disabled (<reason>)`, dashboard banner |
+| MongoDB write error | Same as above for that sign-up | Log `Could not store sign-up` |
+| Mail transport fails (expired secret, SMTP disabled) | Sign-up stored; `email_status` = `failed` with the reason | ✕ in the dashboard (hover for the reason), log `[MAIL ERROR]` |
+| DNS resolver timeout | Address is allowed (no false rejections) | Log `DNS check failed … allowing` |
+| Cloudflare unreachable | Turnstile check skipped; rate limits still apply | Log `Turnstile verification unavailable` |
+| Wrong encryption key after a change | Records still listed; email shows "(cannot decrypt …)" | Dashboard |
 
 ## 7. Code layout
 
 ```
 Backend_Website/
-  main.py                    app, lifespan, CORS + origin firewall, router mounting
-  config.py                  Settings (env), Mongo client, get_vanika_db(), Azure Blob
+  main.py                    app, lifespan, CORS + origin firewall, HSTS
+  config.py                  Settings (env), Mongo client, get_vanika_db()
   Vanika_Mailing/
     routes.py                /vanika/subscribe + /vanika/admin/* (HTTP layer)
-    waitlist.py              WaitlistRepository: upsert, stats, list, export, delete
-    security.py              RateLimiter, client_ip, require_admin
-    helpers.py               send_email (ACS, run in a worker thread)
+    email_policy.py          who may join: syntax, typo, disposable, role, MX, email type
+    data/disposable_domains.txt   CC0 blocklist (refresh: update_disposable_domains.py)
+    crypto.py                AES-256-GCM field encryption + HMAC blind index
+    waitlist.py              WaitlistRepository: encrypted upsert, stats, list, export, delete
+    security.py              rate limiter, client IP, admin auth, Turnstile verify
+    mailer.py                Microsoft 365 mail: Graph / SMTP (/ legacy ACS)
     email_templates.py       team + welcome email HTML
   Anvi_Mailing/, Email_Templates/, InvestorDesk/   other sites — unchanged
-  tests/                     pytest: in-memory Mongo (mongomock-motor), stubbed email
+  tests/                     pytest (37): in-memory Mongo, fake DNS, stubbed mail
 Frontend_Website/
-  index.html  admin.html  demo.html
-  src/lib/api.js             single backend client (URL resolution, subscribe, admin requests)
-  src/main.js                landing page behaviour
+  src/lib/api.js             backend client
+  src/main.js                landing page: forms, Turnstile, typo fix
   src/admin.js               dashboard
-  src/styles/tokens.css      shared design tokens + accessibility base
-  src/styles/site.css        landing page   src/styles/admin.css  dashboard
-  public/staticwebapp.config.json   routes (/demo, /admin), headers
-.github/workflows/ci.yml           tests + build on every push / PR
-.github/workflows/backend-deploy.yml   deploy backend on push to main
-docker-compose.dev.yml             local MongoDB
+  src/styles/                tokens.css, site.css, admin.css
+.github/workflows/           ci.yml, backend-deploy.yml, frontend-deploy.yml
+docs/                        ARCHITECTURE.md, DEPLOYMENT.md, PLAN.md
 ```
 
-**Layering in the backend:** routes (HTTP, validation, auth) → repository (all MongoDB queries) → driver. Routes
-never query MongoDB directly. To swap storage, replace `WaitlistRepository`.
+**Backend layering:** routes (HTTP, auth, orchestration) → policy / crypto / mailer (pure services) → repository
+(all MongoDB access) → driver.
 
 ## 8. Configuration
 
-| Variable | Component | Required | Notes |
+The full annotated list is in `Backend_Website/.env.example` and `Frontend_Website/.env.example`. Production values
+are covered in [DEPLOYMENT.md](DEPLOYMENT.md#5-azure-backend-app-service-mailsbackend).
+
+| Variable | Required | Secret | Purpose |
 |---|---|---|---|
-| `MONGODB_URI` | backend | **yes** (for storage) | Same Atlas cluster as InvestorDesk |
-| `MONGODB_DB_NAME` / `VANIKA_DB_NAME` | backend | no | `VANIKA_DB_NAME` puts Vanika data in its own database |
-| `VANIKA_WAITLIST_COLLECTION` | backend | no | Default `VanikaWaitlist` |
-| `VANIKA_ADMIN_KEY` | backend | **yes** (for dashboard) | Long random string; the admin API is off when empty |
-| `VANIKA_ROUTES_KEY` | backend | no | Must equal the frontend's `VITE_MAIL_ACCESS_KEY` |
-| `VANIKA_SUBSCRIBE_RATE_LIMIT` | backend | no | Default 5/min per IP |
-| `CORS_ORIGINS` | backend | **yes** | Include `https://vanika.ai` and `https://www.vanika.ai` |
-| `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_PRIMARY_VANIKA`, `EMAIL_BCC_FALLBACK_1` | backend | yes (for email) | Sender must be a verified ACS domain address |
-| `VITE_API_BASE_URL` | frontend build | **yes** | Backend base URL; legacy `VITE_MAIL_BACKEND_URL` still accepted |
-| `VITE_MAIL_ACCESS_KEY` | frontend build | if backend key set | Public |
+| `MONGODB_URI` | yes | yes | Storage |
+| `VANIKA_ENCRYPTION_KEY` | yes | **yes, back it up** | Email encryption; storage is off without it |
+| `VANIKA_ADMIN_KEY` | yes | yes | Dashboard / admin API |
+| `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | one transport | secret: yes | Mail via Microsoft Graph |
+| `SMTP_PASSWORD` (+ `SMTP_*`) | one transport | yes | Mail via SMTP (until Dec 2026) |
+| `VANIKA_MAIL_FROM`, `VANIKA_TEAM_INBOX` | no | no | Both default to `info@vanika.ai` |
+| `VANIKA_EMAIL_POLICY` | no | no | `standard` / `work_or_school` |
+| `TURNSTILE_SECRET_KEY` + `VITE_TURNSTILE_SITE_KEY` | recommended | secret key: yes | Bot check |
+| `CORS_ORIGINS` | yes | no | Must include vanika.ai origins |
+| `VITE_API_BASE_URL` | yes | no | Frontend → backend URL |
 
 ## 9. Design decisions
 
 | # | Decision | Alternatives considered | Why |
 |---|---|---|---|
-| D1 | Store sign-ups in **MongoDB Atlas** | New SQL DB, Azure Table Storage, Google Sheets/Airtable | Already provisioned and used by this backend; no new service, credentials or cost |
-| D2 | **Upsert keyed by email** | Insert every submission | Count = unique people; repeat submits don't spam the subscriber |
-| D3 | **Emails in a background task**, ACS call in a worker thread | Send before responding | The visitor gets an instant response; the ACS SDK is blocking and stalled the server |
-| D4 | **Admin dashboard as a static page** on vanika.ai + key-protected API | Admin UI served by the backend; Atlas UI only | Reuses the site design system and build; backend stays a pure API; non-engineers can use it |
-| D5 | **Shared admin key** | Per-user accounts / SSO | Small team, read-mostly data; can be replaced by Entra ID / SWA auth later (see Plan) |
-| D6 | **In-memory rate limiter** | Redis, Azure Front Door WAF | No new infrastructure; adequate for one instance; revisit if the backend scales out |
-| D7 | **Monorepo**, existing folder names kept | Two repos; rename to `frontend/`, `backend/` | One place for the related changes and CI; renaming would break existing deploy settings for no functional gain |
-| D8 | Backward-compatible API | Breaking request format | Old and new frontend/backend combinations keep working, so deploy order doesn't matter |
+| D1 | Store sign-ups in **MongoDB Atlas** | New SQL DB, Table Storage, Sheets/Airtable | Already provisioned for this backend; no new service |
+| D2 | **Upsert keyed by a blind index** | Insert every submission | Count = unique people; repeats don't spam |
+| D3 | **Emails in a background task** | Send before responding | Instant response; slow providers don't block visitors |
+| D4 | **Static admin page** + key-protected API | Backend-served UI; Atlas UI only | Reuses the site design; usable by non-engineers |
+| D5 | Shared admin key | Per-user SSO | Small team; upgrade path in PLAN (H4) |
+| D6 | In-memory rate limiter | Redis / Front Door WAF | No new infrastructure at one instance |
+| D7 | Monorepo, existing folder names | Two repos; renames | One CI; existing deploy settings keep working |
+| D8 | Backward-compatible API | Breaking change | Deploy order doesn't matter |
+| D9 | **Application-level AES-256-GCM** for addresses, on top of Atlas at-rest encryption | Atlas encryption only; MongoDB Queryable Encryption (CSFLE) | Protects against DB credential leaks and copied backups. Automatic CSFLE / Queryable Encryption needs MongoDB's crypt_shared library plus a KMS provider: more moving parts than this dataset warrants. |
+| D10 | **Microsoft 365 via Graph** (SMTP as a bridge) | Keep Azure ACS; SMTP only | Sends from the real `info@vanika.ai` mailbox, so replies land there. Microsoft retires SMTP basic auth (default-off end of Dec 2026). |
+| D11 | **Policy-based email acceptance** (disposable list + MX + typos) with an optional work/school-only mode | Third-party verification API (ZeroBounce etc.); work-only by default | No per-check cost or third-party data sharing. Blocking Gmail by default would turn away many real engineers and students; the strict mode is one setting. |
+| D12 | **Turnstile** for bot checks | reCAPTCHA, hCaptcha | Free, privacy-friendly, usually invisible |
 
 ## 10. Known limitations
 
-- The admin key is shared, and there is no audit log of who exported or deleted records.
+- The encryption key cannot be rotated in place; rotation means export and re-import (DEPLOYMENT → Operations).
+- Admin search decrypts all records per query. That's fine at waitlist scale (tens of thousands); revisit beyond that.
+- The disposable-domain list must be refreshed periodically (monthly script).
+- The admin key is shared, and there is no audit log.
 - The rate limit is per backend instance.
-- Python dependencies are unpinned, so each deploy installs the newest versions.
 - `motor` is deprecated in favour of PyMongo's async API.
-- The `/anvi` templates and InvestorDesk email sending still have the issues fixed for Vanika (no HTML escaping;
-  blocking sends).
+- The `/anvi` templates and InvestorDesk email sending still lack the Vanika fixes (escaping; blocking sends).
 - There is no unsubscribe link or consent record yet.
 
 Each of these has an item in [PLAN.md](PLAN.md).

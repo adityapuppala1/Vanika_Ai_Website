@@ -1,0 +1,51 @@
+# Builds Frontend_Website and deploys it to Azure Static Web Apps (vanika.ai).
+#
+# One-time setup (see docs/DEPLOYMENT.md):
+#   Secret    AZURE_STATIC_WEB_APPS_API_TOKEN  deployment token from the SWA resource
+#   Variables VITE_API_BASE_URL                backend URL, e.g. https://<mailsbackend>.azurewebsites.net
+#             VITE_TURNSTILE_SITE_KEY          optional Cloudflare Turnstile site key
+#   Secret    VITE_MAIL_ACCESS_KEY             optional; must equal backend VANIKA_ROUTES_KEY
+name: Deploy frontend to Azure Static Web Apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Frontend_Website/**"
+      - ".github/workflows/frontend-deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend_Website/package-lock.json
+
+      - name: Build
+        working-directory: Frontend_Website
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+          VITE_MAIL_ACCESS_KEY: ${{ secrets.VITE_MAIL_ACCESS_KEY }}
+        run: |
+          test -n "$VITE_API_BASE_URL" || { echo "::error::Set the VITE_API_BASE_URL repository variable"; exit 1; }
+          npm ci
+          npm run build
+
+      - name: Deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: Frontend_Website/dist
+          skip_app_build: true
+          output_location: ""

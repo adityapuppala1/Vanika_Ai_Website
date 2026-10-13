@@ -88,3 +88,34 @@ async def require_admin(request: Request, x_admin_key: str = Header(default=""))
         return
     admin_failure_limiter.allow(ip)
     raise HTTPException(status_code=401, detail="INVALID_ADMIN_KEY")
+
+
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+async def verify_turnstile(token: str, ip: str) -> bool:
+    """Cloudflare Turnstile server-side check. Disabled (always True) without a secret key."""
+    if not settings.TURNSTILE_SECRET_KEY:
+        return True
+    if not token or len(token) > 2048:  # Cloudflare tokens are at most 2048 characters
+        return False
+    # pyrefly: ignore [missing-import]
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.post(
+                TURNSTILE_VERIFY_URL,
+                data={"secret": settings.TURNSTILE_SECRET_KEY, "response": token, "remoteip": ip},
+            )
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        # Only a Cloudflare outage lets people through; rate limits still apply
+        print(f"[Vanika] [WARN] Turnstile unreachable, allowing: {type(e).__name__}")
+        return True
+    if response.status_code != 200:
+        print(f"[Vanika] [WARN] Turnstile returned HTTP {response.status_code}, rejecting")
+        return False
+    try:
+        return response.json().get("success") is True
+    except ValueError:
+        return False

@@ -36,7 +36,16 @@ LABEL_STYLE = "font-weight: 600; color: #000;"
 def get_logo_url(website: str) -> str:
     return "https://vanika.ai/logos/vanikaAi_mail_logo_white.png"
 
-def vanika_subscribe_admin(clientemail: str, source: str = "", total: Optional[int] = None, stored: bool = True):
+TYPE_LABELS = {"work": "Work", "education": "School / university", "personal": "Personal"}
+
+
+def vanika_subscribe_admin(
+    clientemail: str,
+    source: str = "",
+    total: Optional[int] = None,
+    stored: bool = True,
+    email_type: str = "",
+):
     total_row = (
         f'<p><span style="{LABEL_STYLE}">Waitlist size:</span> {total}</p>' if total is not None else ""
     )
@@ -55,6 +64,7 @@ def vanika_subscribe_admin(clientemail: str, source: str = "", total: Optional[i
             <h2 style="{TITLE_STYLE}">✨ New Waitlist Sign-up</h2>
             <p><span style="{LABEL_STYLE}">Website:</span> Vanika.ai</p>
             <p><span style="{LABEL_STYLE}">Client Email:</span> {escape(clientemail)}</p>
+            <p><span style="{LABEL_STYLE}">Email type:</span> {escape(TYPE_LABELS.get(email_type, email_type or "unknown"))}</p>
             <p><span style="{LABEL_STYLE}">Form:</span> {escape(source or "unknown")}</p>
             {total_row}
             {storage_warning}
@@ -75,8 +85,10 @@ def vanika_subscribe_user():
             <h2 style="{TITLE_STYLE}">🎉 You're on the Vanika waitlist</h2>
             <p>Thank you for joining the waitlist for <strong>Vanika.ai</strong> — the AI copilot for robotics engineers.</p>
             <p>We'll email you when early access opens — one email when there's something real to share, and not before.</p>
+            <p>Building a robot right now? Just reply to this email and tell us about it — we read every reply.</p>
             <br>
-            <p>Warm Regards,<br><strong>Vanika.ai Team</strong></p>
+            <p>Warm Regards,<br><strong>Vanika.ai Team</strong><br>
+            <a href="mailto:info@vanika.ai" style="color:#2D6A4F;">info@vanika.ai</a></p>
         </div>
         <p style="text-align:center; margin-top:12px; color:#555;">
             © Vanika.ai

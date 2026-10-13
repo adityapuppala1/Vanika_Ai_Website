@@ -27,6 +27,52 @@ if ('IntersectionObserver' in window) {
   reveals.forEach(el => el.classList.add('in'));
 }
 
+// Cloudflare Turnstile bot check — only when VITE_TURNSTILE_SITE_KEY is set at build time
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+let turnstileLoader = null;
+
+function loadTurnstile() {
+  turnstileLoader ??= new Promise((resolve, reject) => {
+    window.onVanikaTurnstileLoad = () => resolve(window.turnstile);
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onVanikaTurnstileLoad';
+    script.async = true;
+    script.onerror = reject;
+    document.head.append(script);
+  });
+  return turnstileLoader;
+}
+
+function attachTurnstile(form) {
+  const state = { token: '', widgetId: null, api: null };
+  if (!TURNSTILE_SITE_KEY) return state;
+  const slot = document.createElement('div');
+  slot.className = 'turnstile-slot';
+  form.querySelector('.waitlist-row').after(slot);
+  loadTurnstile()
+    .then((api) => {
+      state.api = api;
+      state.widgetId = api.render(slot, {
+        sitekey: TURNSTILE_SITE_KEY,
+        appearance: 'interaction-only', // invisible unless Cloudflare needs the visitor to click
+        theme: 'dark',
+        size: 'flexible',
+        callback: (token) => { state.token = token; },
+        'expired-callback': () => { state.token = ''; },
+      });
+    })
+    .catch(() => console.error('[Vanika] Could not load the Turnstile bot check'));
+  return state;
+}
+
+async function turnstileToken(state) {
+  // The check usually finishes within a second of page load; wait briefly if not
+  for (let i = 0; i < 20 && TURNSTILE_SITE_KEY && !state.token; i += 1) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return state.token;
+}
+
 // waitlist forms
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,9 +86,33 @@ function wireWaitlistForm(form) {
   const successTitle = success.querySelector('[data-success-title]');
   const successText = success.querySelector('[data-success-text]');
   const idleLabel = submitBtn.textContent;
+  const bot = attachTurnstile(form);
 
-  function showError(message) {
-    errorEl.textContent = message;
+  function showError(message, suggestion) {
+    errorEl.replaceChildren(message);
+    if (suggestion) {
+      // One click to accept "Did you mean …?"
+      const fix = document.createElement('button');
+      fix.type = 'button';
+      fix.className = 'suggestion';
+      fix.textContent = `Use ${suggestion}`;
+      fix.addEventListener('click', () => {
+        emailEl.value = suggestion;
+        clearError();
+        form.requestSubmit();
+      });
+      // …or keep what they typed (real domains can look like typos, e.g. cloud.com)
+      const keep = document.createElement('button');
+      keep.type = 'button';
+      keep.className = 'suggestion';
+      keep.textContent = 'Keep my address';
+      keep.addEventListener('click', () => {
+        form.dataset.keepEmail = '1';
+        clearError();
+        form.requestSubmit();
+      });
+      errorEl.append(' ', fix, ' · ', keep);
+    }
     errorEl.classList.add('show');
     row.classList.add('invalid');
     emailEl.setAttribute('aria-invalid', 'true');
@@ -71,6 +141,8 @@ function wireWaitlistForm(form) {
     clearError();
 
     const email = emailEl.value.trim();
+    const keepEmail = form.dataset.keepEmail === '1';
+    delete form.dataset.keepEmail;
     if (!EMAIL_PATTERN.test(email)) {
       showError('Please enter a valid email address, like you@company.com.');
       emailEl.focus();
@@ -84,16 +156,24 @@ function wireWaitlistForm(form) {
       email,
       source: form.dataset.source,
       honeypot: hpEl ? hpEl.value : '',
+      turnstileToken: await turnstileToken(bot),
+      keepEmail,
     });
 
     submitBtn.disabled = false;
     submitBtn.textContent = idleLabel;
+    // Turnstile tokens are single-use
+    if (bot.api && bot.widgetId !== null) {
+      bot.token = '';
+      bot.api.reset(bot.widgetId);
+    }
 
     if (result.ok) {
       form.reset();
       showSuccess(result.alreadySubscribed);
     } else {
-      showError(result.message);
+      showError(result.message, result.suggestion);
+      emailEl.focus();
     }
   });
 }

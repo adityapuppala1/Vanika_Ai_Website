@@ -2,7 +2,8 @@
 
 Marketing site and waitlist for [vanika.ai](https://vanika.ai), the AI copilot for robotics engineers by Anvi Robotics.
 
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: system design, data model, security, design decisions
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**: production setup and release runbook (start here to go live)
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: system design, data model, encryption, spam protection, decisions
 - **[docs/PLAN.md](docs/PLAN.md)**: go-live checklist, hardening and product roadmap, open decisions
 
 ## Architecture
@@ -17,9 +18,11 @@ Marketing site and waitlist for [vanika.ai](https://vanika.ai), the AI copilot f
         GET  /vanika/admin/*  ──┤
                                 ▼
           MailsBackend (Azure App Service) ── Backend_Website/   FastAPI
-             ├─ /vanika        Vanika waitlist + admin API   ──► MongoDB Atlas (VanikaWaitlist)
-             ├─ /anvi          Anvi Robotics / TheBotFactory forms      └─► Azure Communication
-             └─ /investorDesk  Investor portal (OTP login)                  Services (email)
+             ├─ /vanika        Vanika waitlist + admin API   ──► MongoDB Atlas (VanikaWaitlist, encrypted)
+             │                                               ──► Microsoft 365 info@vanika.ai (Graph / SMTP)
+             │                                               ──► Cloudflare Turnstile (bot check, optional)
+             ├─ /anvi          Anvi Robotics / TheBotFactory forms ──► Azure Communication Services
+             └─ /investorDesk  Investor portal (OTP login)
 ```
 
 The backend is **shared**: it also serves the Anvi Robotics, TheBotFactory and InvestorDesk sites. Changes to
@@ -28,12 +31,19 @@ The backend is **shared**: it also serves the Anvi Robotics, TheBotFactory and I
 ### Waitlist flow
 
 1. A visitor submits an email on vanika.ai (hero form `source=hero`, bottom form `source=final_cta`).
-2. `POST /vanika/subscribe` rate-limits by IP, checks the honeypot and access key, then validates and lowercases
-   the email.
-3. The sign-up is **upserted** into MongoDB, with one document per email. Repeat sign-ups increment
-   `signup_count` and add the form to `sources`, so the collection count is the number of unique people.
-4. For new sign-ups only, the response returns immediately and two emails go out in the background: one to the
-   team and one welcome email to the subscriber. Their delivery result is saved on the document (`email_status`).
+2. `POST /vanika/subscribe` runs the spam checks in order:
+   - per-IP rate limit
+   - honeypot
+   - Turnstile bot check (if enabled)
+   - email policy: work, school and well-known personal addresses are accepted; disposable inboxes, typos (with a
+     one-click "Did you mean…?"), no-reply mailboxes and domains without mail servers are rejected
+3. The sign-up is **upserted** into MongoDB, one document per person.
+   - The address is stored only **AES-256-GCM encrypted**, with a keyed hash used for de-duplication.
+   - Repeat sign-ups increment `signup_count`, so the collection count is the number of unique people.
+4. For new sign-ups only, the response returns immediately and two emails go out in the background through
+   Microsoft 365. Both their delivery results are saved (`email_status`).
+   - **To the team:** a notification to `info@vanika.ai`.
+   - **To the subscriber:** a welcome email from `info@vanika.ai`; their replies come back to `info@vanika.ai`.
 5. If MongoDB is unavailable, the sign-up is still emailed to the team, with a warning that it was not stored.
 
 ### Viewing the waitlist
@@ -42,7 +52,7 @@ Open **`https://vanika.ai/admin`** and sign in with the backend's `VANIKA_ADMIN_
 
 - total sign-ups, and sign-ups for today, the last 7 days and the last 30 days
 - a daily chart
-- a breakdown by form
+- a breakdown by form and by email type (work / school / personal)
 - a searchable subscriber list with email delivery status
 
 You can also export everything to CSV or remove an entry, for example after a deletion request.
@@ -84,14 +94,15 @@ docker compose -f Frontend_Website/
 
 ```bash
 cd Backend_Website
-cp .env.example .env              # MONGODB_URI=mongodb://localhost:27017, VANIKA_ADMIN_KEY=…
+cp .env.example .env              # MONGODB_URI=mongodb://localhost:27017, VANIKA_ENCRYPTION_KEY, VANIKA_ADMIN_KEY, SMTP_PASSWORD…
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 uvicorn main:app --reload --port 8000
 python -m pytest                   # tests need no MongoDB or ACS
 ```
 
-Without ACS credentials, sign-ups are still stored, and the dashboard shows the emails as failed (✕).
+Without mail credentials, sign-ups are still stored, and the dashboard shows the emails as failed (✕).
+For local Turnstile testing, use Cloudflare's always-pass test keys (in the `.env.example` files).
 
 **Frontend** (Node 20.19+):
 
@@ -106,14 +117,19 @@ npm run dev                       # http://localhost:5173, admin at /admin
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `MONGODB_URI` | backend | **Required to store sign-ups.** Without it, sign-ups are only emailed. |
+| `MONGODB_URI` | backend | **Required to store sign-ups.** |
+| `VANIKA_ENCRYPTION_KEY` | backend | **Required to store sign-ups.** 32-byte key for email encryption. Back it up. |
 | `VANIKA_ADMIN_KEY` | backend | Private key for `/admin`. The admin API is disabled when it is empty. |
-| `CORS_ORIGINS` | backend | Allowed origins, comma-separated. Must include `https://vanika.ai` and `https://www.vanika.ai`. |
-| `AZURE_COMMUNICATION_CONNECTION_STRING`, `EMAIL_PRIMARY_VANIKA` | backend | Email sending (ACS) |
-| `VANIKA_ROUTES_KEY` / `VITE_MAIL_ACCESS_KEY` | backend / frontend | Must match. It is public in the JS bundle, so it only filters casual bots. |
-| `VITE_API_BASE_URL` | frontend build | Backend base URL. The older `VITE_MAIL_BACKEND_URL` still works. |
+| `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` | backend | Mail from `info@vanika.ai` via Microsoft Graph (recommended) |
+| `SMTP_PASSWORD` (+ `SMTP_*`) | backend | Mail via Microsoft 365 SMTP (works until Microsoft's Dec 2026 cut-off) |
+| `VANIKA_EMAIL_POLICY` | backend | `standard` or `work_or_school` |
+| `TURNSTILE_SECRET_KEY` / `VITE_TURNSTILE_SITE_KEY` | backend / frontend | Optional Cloudflare bot check. Set both or neither. |
+| `CORS_ORIGINS` | backend | Allowed origins. Must include `https://vanika.ai` and `https://www.vanika.ai`. |
+| `VANIKA_ROUTES_KEY` / `VITE_MAIL_ACCESS_KEY` | backend / frontend | Must match. Public, so it only filters casual bots. |
+| `VITE_API_BASE_URL` | frontend build | Backend base URL |
 
-The full lists are in `Backend_Website/.env.example` and `Frontend_Website/.env.example`.
+The full annotated lists are in `Backend_Website/.env.example` and `Frontend_Website/.env.example`. Production
+setup is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## API
 

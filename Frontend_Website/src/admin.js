@@ -3,6 +3,7 @@ import { API_BASE, ApiError, adminRequest } from './lib/api.js';
 
 const KEY_STORAGE = 'vanika_admin_key';
 const PAGE_SIZE = 50;
+const TYPE_LABELS = { work: 'Work', education: 'School / university', personal: 'Personal' };
 const SOURCE_LABELS = {
   hero: 'Hero form (top of page)',
   final_cta: 'Request access form (bottom)',
@@ -84,7 +85,8 @@ function describeError(err) {
     return `Can't reach the backend at ${API_BASE || '(VITE_API_BASE_URL not set)'}. Check that it is running and that this site's origin is in CORS_ORIGINS.`;
   }
   if (err.status === 503 && err.message.startsWith('STORAGE_UNAVAILABLE')) {
-    return 'The backend has no database configured (MONGODB_URI), so sign-ups are only being emailed, not stored.';
+    const reason = err.message.split(':').slice(1).join(':').trim();
+    return `Sign-ups are only being emailed, not stored (${reason || 'storage not configured'}). See docs/DEPLOYMENT.md.`;
   }
   if (err.status === 503 && err.message.startsWith('ADMIN_DISABLED')) {
     return 'The admin API is disabled. Set VANIKA_ADMIN_KEY on the backend.';
@@ -179,9 +181,9 @@ function renderChart(daily) {
   tbody.replaceChildren(...daily.map((d) => el('tr', {}, [el('td', { text: d.date }), el('td', { text: String(d.count) })])));
 }
 
-function renderSources(bySource, total) {
-  const list = $('sourceList');
-  const entries = Object.entries(bySource).sort((a, b) => b[1] - a[1]);
+function renderBreakdown(listId, counts, total, labelFor) {
+  const list = $(listId);
+  const entries = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) {
     list.replaceChildren(el('li', { class: 'muted small', text: 'No sign-ups yet.' }));
     return;
@@ -190,7 +192,7 @@ function renderSources(bySource, total) {
     const pct = total ? Math.round((count / total) * 100) : 0;
     return el('li', { class: 'source-row' }, [
       el('div', { class: 'source-meta' }, [
-        el('span', { text: sourceLabel(source) }),
+        el('span', { text: labelFor(source) }),
         el('span', { class: 'count', text: `${numberFmt.format(count)} · ${pct}%` }),
       ]),
       el('div', { class: 'source-track', 'aria-hidden': 'true' }, [
@@ -204,15 +206,17 @@ async function loadStats() {
   const stats = await adminRequest('/stats', state.key);
   renderTiles(stats);
   renderChart(stats.daily);
-  renderSources(stats.bySource, stats.total);
+  renderBreakdown('sourceList', stats.bySource, stats.total, sourceLabel);
+  renderBreakdown('typeList', stats.byType, stats.total, (t) => TYPE_LABELS[t] || t);
 }
 
 // ─── subscriber list ───
-function mailStatus(status = {}) {
+function mailStatus(status = {}, error = '') {
   const part = (label, value) => {
     const map = { sent: ['ok', '✓'], failed: ['fail', '✕'], pending: ['wait', '…'] };
     const [cls, icon] = map[value] || ['wait', '–'];
-    return el('span', { class: cls, title: `${label}: ${value || 'unknown'}`, text: `${icon} ${label}` });
+    const reason = value === 'failed' && error ? ` — ${error}` : '';
+    return el('span', { class: cls, title: `${label}: ${value || 'unknown'}${reason}`, text: `${icon} ${label}` });
   };
   return el('span', { class: 'mail-status' }, [part('Team', status.admin), ' · ', part('Welcome', status.user)]);
 }
@@ -225,10 +229,11 @@ function renderRows(items) {
       .map((src) => el('span', { class: 'chip', title: sourceLabel(src), text: src }));
     return el('tr', {}, [
       el('td', { class: 'email', text: s.email }),
+      el('td', {}, [el('span', { class: 'chip', text: TYPE_LABELS[s.emailType] || s.emailType || '–' })]),
       el('td', { class: 'when', title: s.createdAt ? dateTimeFmt.format(new Date(s.createdAt)) : '', text: s.createdAt ? relativeTime(s.createdAt) : '–' }),
       el('td', {}, sources),
       el('td', { class: 'num', text: String(s.signupCount || 1) }),
-      el('td', {}, [mailStatus(s.emailStatus)]),
+      el('td', {}, [mailStatus(s.emailStatus, s.emailError)]),
       el('td', { class: 'num' }, [del]),
     ]);
   }));

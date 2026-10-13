@@ -16,7 +16,8 @@ load_dotenv()
 # Routers
 from Anvi_Mailing.routes import router as mailing_router
 from InvestorDesk.routes import router as investor_router
-from Vanika_Mailing.routes import router as vanika_router, get_waitlist, ensure_waitlist_indexes
+from Vanika_Mailing.routes import router as vanika_router, get_waitlist, ensure_waitlist_indexes, storage_unavailable_reason
+from Vanika_Mailing.mailer import active_transport
 
 _background_tasks = set()
 
@@ -29,9 +30,10 @@ async def lifespan(app: FastAPI):
     # await get_collection_data("InvestorsProfiles")
     # await get_collection_data("InvestorsContent")
 
+    print(f"[Vanika] Mail transport: {active_transport()}")
     waitlist = get_waitlist()
     if waitlist is None:
-        print("[Vanika] [WARN] MongoDB not configured — waitlist sign-ups will NOT be stored.")
+        print(f"[Vanika] [WARN] Waitlist storage disabled ({storage_unavailable_reason()}) — sign-ups will NOT be stored.")
     else:
         # Don't block startup on Atlas; keep a reference so the task isn't garbage-collected.
         # If it fails, the first sign-up retries it.
@@ -102,7 +104,11 @@ async def origin_firewall(request: Request, call_next):
         # Return (not raise): exceptions raised in middleware become 500s
         return JSONResponse(status_code=403, content={"detail": "CORS_BLOCKED"})
 
-    return await call_next(request)
+    response = await call_next(request)
+    # Transport security: browsers must only ever reach this API over HTTPS
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    return response
 
 # ---------------------------------------------------------
 # Health check

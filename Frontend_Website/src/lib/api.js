@@ -20,9 +20,16 @@ const ACCESS_KEY = env.VITE_MAIL_ACCESS_KEY || '';
 const MESSAGES = {
   INVALID_EMAIL: 'Please enter a valid email address.',
   RATE_LIMITED: 'Too many attempts. Please wait a minute and try again.',
+  BOT_CHECK_FAILED: "We couldn't verify you're human. Please refresh the page and try again.",
   NETWORK: "We couldn't reach our server. Check your connection and try again.",
   UNKNOWN: 'Something went wrong on our side. Please try again in a moment.',
 };
+
+// Email-policy rejections: the server's message is written for visitors, show it as-is
+const POLICY_CODES = new Set([
+  'INVALID_EMAIL', 'EMAIL_TYPO', 'DISPOSABLE_EMAIL', 'ROLE_EMAIL',
+  'UNDELIVERABLE_DOMAIN', 'PERSONAL_EMAIL_NOT_ALLOWED',
+]);
 
 function marketingParams() {
   const params = new URLSearchParams(window.location.search);
@@ -40,9 +47,9 @@ function marketingParams() {
 
 /**
  * Add an email to the waitlist.
- * Resolves to { ok: true, alreadySubscribed } or { ok: false, message }.
+ * Resolves to { ok: true, alreadySubscribed } or { ok: false, message, suggestion? }.
  */
-export async function joinWaitlist({ email, source, honeypot = '' }) {
+export async function joinWaitlist({ email, source, honeypot = '', turnstileToken = '', keepEmail = false }) {
   const body = new URLSearchParams({
     clientemail: email,
     accesskey: ACCESS_KEY,
@@ -50,6 +57,9 @@ export async function joinWaitlist({ email, source, honeypot = '' }) {
     website: honeypot,
     ...marketingParams(),
   });
+  if (turnstileToken) body.set('cf-turnstile-response', turnstileToken);
+  // The visitor saw the "did you mean" hint and chose to keep their address
+  if (keepEmail) body.set('keep_email', '1');
 
   let response;
   try {
@@ -65,6 +75,9 @@ export async function joinWaitlist({ email, source, honeypot = '' }) {
   const data = await response.json().catch(() => ({}));
   if (response.ok && String(data.status).toLowerCase() === 'success') {
     return { ok: true, alreadySubscribed: Boolean(data.alreadySubscribed) };
+  }
+  if (POLICY_CODES.has(data.code) && data.message) {
+    return { ok: false, message: data.message, suggestion: data.suggestion };
   }
   return { ok: false, message: MESSAGES[data.code] || MESSAGES.UNKNOWN };
 }

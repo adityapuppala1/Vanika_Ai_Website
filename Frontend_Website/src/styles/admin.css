@@ -436,6 +436,10 @@ main.admin-container {
 }
 
 /* ─── source breakdown ─── */
+.type-head {
+  margin-top: 26px
+}
+
 .sources {
   list-style: none;
   margin: 0;

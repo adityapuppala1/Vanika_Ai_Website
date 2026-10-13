@@ -30,6 +30,32 @@ class Settings(BaseSettings):
     VANIKA_WAITLIST_COLLECTION: str = os.getenv("VANIKA_WAITLIST_COLLECTION", "VanikaWaitlist")
     # Max subscribe attempts per client IP per minute
     VANIKA_SUBSCRIBE_RATE_LIMIT: int = int(os.getenv("VANIKA_SUBSCRIBE_RATE_LIMIT", 5))
+    # 32-byte base64 key for AES-256-GCM field encryption of stored emails (required for storage)
+    VANIKA_ENCRYPTION_KEY: str = os.getenv("VANIKA_ENCRYPTION_KEY", "")
+    # "standard" (work, school, well-known personal providers) or "work_or_school"
+    VANIKA_EMAIL_POLICY: str = os.getenv("VANIKA_EMAIL_POLICY", "standard")
+    # Reject domains without MX records (DNS lookup per new domain, cached)
+    VANIKA_EMAIL_DNS_CHECK: bool = os.getenv("VANIKA_EMAIL_DNS_CHECK", "true").lower() == "true"
+    # Cloudflare Turnstile bot check (optional; enabled when set)
+    TURNSTILE_SECRET_KEY: str = os.getenv("TURNSTILE_SECRET_KEY", "")
+
+    # Vanika mail (Microsoft 365 mailbox)
+    VANIKA_MAIL_FROM: str = os.getenv("VANIKA_MAIL_FROM", "info@vanika.ai")
+    VANIKA_MAIL_FROM_NAME: str = os.getenv("VANIKA_MAIL_FROM_NAME", "Vanika.AI")
+    # Receives new sign-up notifications and replies to the welcome email
+    VANIKA_TEAM_INBOX: str = os.getenv("VANIKA_TEAM_INBOX", "info@vanika.ai")
+    # auto | graph | smtp | acs
+    VANIKA_MAIL_TRANSPORT: str = os.getenv("VANIKA_MAIL_TRANSPORT", "auto")
+    # Microsoft Graph (recommended): Entra ID app with Mail.Send application permission
+    GRAPH_TENANT_ID: str = os.getenv("GRAPH_TENANT_ID", "")
+    GRAPH_CLIENT_ID: str = os.getenv("GRAPH_CLIENT_ID", "")
+    GRAPH_CLIENT_SECRET: str = os.getenv("GRAPH_CLIENT_SECRET", "")
+    # SMTP (bridge until Microsoft disables basic auth, end of Dec 2026)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.office365.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", 587))
+    SMTP_SECURITY: str = os.getenv("SMTP_SECURITY", "starttls")  # starttls | ssl
+    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 
     # MongoDB Atlas
     MONGODB_URI: str = os.getenv("MONGODB_URI", "")

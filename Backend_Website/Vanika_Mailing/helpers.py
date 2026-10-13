@@ -45,12 +45,7 @@ def _send_email_sync(subject, html, to=None, reply=None, attachment=None, onlySe
                     bcc_recipients.append({"address": EMAIL_BCC_FALLBACK_1})
                     bcc_set.add(fallback1_lc)
 
-        print("//////////////////////")
-        print("Primary Email : ", active_sender)
-        print("Sending Email to : ", to_recipients)
-        print("BCC Hidden Sending Email to : ", bcc_recipients)
-        print("subject", subject)
-        print("//////////////////////")
+        print(f"[Vanika] ACS send: {len(to_recipients)} to, {len(bcc_recipients)} bcc")
 
         email_message = {
             "senderAddress": active_sender,
