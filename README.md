@@ -2,6 +2,9 @@
 
 Marketing site and waitlist for [vanika.ai](https://vanika.ai), the AI copilot for robotics engineers by Anvi Robotics.
 
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: system design, data model, security, design decisions
+- **[docs/PLAN.md](docs/PLAN.md)**: go-live checklist, hardening and product roadmap, open decisions
+
 ## Architecture
 
 ```
@@ -64,20 +67,31 @@ Frontend_Website/
   src/lib/api.js       backend client (shared)
   src/styles/          tokens.css (shared design tokens), site.css, admin.css
   public/              icons, logos, robots.txt, sitemap, Azure SWA config
+docs/                  ARCHITECTURE.md, PLAN.md
+docker-compose.dev.yml local MongoDB
 ```
 
 ## Local development
+
+**Database** (Docker):
+
+```bash
+docker compose -f Frontend_Website/
+  index.html, admin.html, demo.html up -d   # MongoDB on localhost:27017
+```
 
 **Backend** (Python 3.10+):
 
 ```bash
 cd Backend_Website
-cp .env.example .env              # fill in MONGODB_URI, ACS, VANIKA_ADMIN_KEY…
+cp .env.example .env              # MONGODB_URI=mongodb://localhost:27017, VANIKA_ADMIN_KEY=…
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 uvicorn main:app --reload --port 8000
 python -m pytest                   # tests need no MongoDB or ACS
 ```
+
+Without ACS credentials, sign-ups are still stored, and the dashboard shows the emails as failed (✕).
 
 **Frontend** (Node 20.19+):
 

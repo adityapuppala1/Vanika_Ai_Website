@@ -1,0 +1,14 @@
+# Local development dependencies. Start with:
+#   docker compose -f docker-compose.dev.yml up -d
+# then set MONGODB_URI=mongodb://localhost:27017 in Backend_Website/.env
+services:
+  mongo:
+    image: mongo:7
+    container_name: vanika-dev-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - vanika-mongo-data:/data/db
+
+volumes:
+  vanika-mongo-data:
