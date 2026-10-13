@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+sendgrid
+azure-communication-email
+python-dotenv
+motor
+pydantic
+pydantic_settings
+pydantic[email]
+pyjwt
+azure-storage-blob

@@ -1,0 +1,15 @@
+{
+  "trailingSlash": "auto",
+  "routes": [
+    {
+      "route": "/demo",
+      "rewrite": "/demo.html"
+    }
+  ],
+  "responseOverrides": {
+    "404": {
+      "redirect": "/",
+      "statusCode": 302
+    }
+  }
+}

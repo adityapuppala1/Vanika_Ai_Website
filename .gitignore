@@ -1,0 +1,25 @@
+# Local-only artifacts (not part of the product)
+graphify-out/
+.legacy-git/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+antenv/
+
+# Node
+node_modules/
+dist/
+*.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/

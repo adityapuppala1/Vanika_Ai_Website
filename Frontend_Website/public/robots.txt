@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /demo
+Disallow: /demo.html
+
+Sitemap: https://vanika.ai/sitemap.xml

@@ -1,0 +1,31 @@
+fastapi
+    - The main Python web framework used to build APIs, routes, request/response models.
+
+uvicorn
+    - ASGI server required to run FastAPI applications in production or local development.
+
+python-multipart
+    - Enables FastAPI to handle form data and file uploads (UploadFile, Form fields, resumes, etc.).
+
+sendgrid
+    - Required to send emails (OTP emails, contact form messages, job applications) using  API.
+
+python-dotenv
+    - Loads environment variables from a .env file for secure configuration:
+        (MongoDB URI, SendGrid key, Azure keys, JWT secret, etc.)
+
+motor
+    - Asynchronous MongoDB driver used by FastAPI:
+        InvestorProfiles and InvestorsContent collections.
+
+pydantic
+    - Used for request validation, schema models, and environment settings (BaseModel, BaseSettings).
+
+pyjwt
+    - JWT token generation and verification for investor login tokens (OTP login → JWT session token).
+
+azure-storage-blob
+    - Azure Blob Storage SDK used for:
+        - Uploading investor content files (PDF, images, docs)
+        - Generating file URLs
+        - Managing uploads for investor content module (InvestorDesk)
