@@ -1,0 +1,82 @@
+# Deploys Backend_Website to the "MailsBackend" Azure Web App.
+# Moved from Backend_Website/.github (GitHub only reads workflows at the repo root).
+#
+# Before this can run, add these repository secrets (same values as the old
+# AvanikaGyanaji/Anvi_Mail_backend_main repo, or a new federated credential
+# for this repo in Azure with subject repo:<owner>/Vanika_Ai_Website:ref:refs/heads/main):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#
+# Note: this backend also serves the Anvi Robotics, TheBotFactory and
+# InvestorDesk sites — deploying from here replaces what the old repo deployed.
+
+name: Deploy backend to Azure Web App - MailsBackend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Backend_Website/**"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: Backend_Website
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies and run tests
+        run: |
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install -r requirements-dev.txt
+          python -m pytest -q
+
+      # Azure's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT) installs packages on
+      # the server, so the local virtualenv and tests are left out of the artifact.
+      - name: Upload artifact for deployment jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            Backend_Website
+            !Backend_Website/antenv/
+            !Backend_Website/tests/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write # required for OIDC login
+      contents: read
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: "MailsBackend"
+          slot-name: "Production"

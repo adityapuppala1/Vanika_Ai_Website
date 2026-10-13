@@ -1,0 +1,616 @@
+/* Waitlist admin dashboard (admin.html) */
+@import './tokens.css';
+
+:root {
+  --surface: var(--pearl);
+  --card: var(--white);
+  --text: var(--ink);
+  --text-2: var(--ink3);
+  --muted: #6E6E69;
+  --line: var(--border);
+  --grid: #EDEDE8;
+  --bar-bg: var(--ink);
+  --bar-text: var(--pearl);
+  /* chart mark, validated for light surfaces (dataviz six checks) */
+  --chart: #2F855A;
+  --good: #1E7A4C;
+  --bad: var(--danger-ink);
+  --input-bg: var(--white);
+  --btn-primary-bg: var(--ink);
+  --btn-primary-text: var(--pearl);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #0F0F0E;
+    --card: #181817;
+    --text: #F2F2EE;
+    --text-2: #C4C4BE;
+    --muted: #9C9C96;
+    --line: #2C2C29;
+    --grid: #252523;
+    --bar-bg: #181817;
+    --bar-text: #F2F2EE;
+    /* chart mark, validated for dark surfaces */
+    --chart: #3FA373;
+    --good: #5CC08F;
+    --bad: #FF8F84;
+    --input-bg: #0F0F0E;
+    --btn-primary-bg: #F2F2EE;
+    --btn-primary-text: #0F0F0E;
+  }
+}
+
+body {
+  background: var(--surface);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.muted {
+  color: var(--muted)
+}
+
+.small {
+  font-size: 12px
+}
+
+.admin-container {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ─── top bar ─── */
+.admin-bar {
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.admin-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.admin-title {
+  display: flex;
+  align-items: center;
+  gap: 12px
+}
+
+.brand {
+  font-weight: 500;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.brand .dot {
+  color: var(--sage-bright)
+}
+
+.admin-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sage-bright);
+  border: 1px solid rgba(82, 183, 136, 0.35);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap
+}
+
+.updated {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink5);
+  margin-right: 4px
+}
+
+/* ─── buttons & inputs ─── */
+.btn {
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: background .15s ease, border-color .15s ease, opacity .15s ease;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor: default
+}
+
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text)
+}
+
+.admin-bar .btn-primary {
+  background: var(--sage-bright);
+  color: #0F2E20
+}
+
+.btn-primary:not(:disabled):hover {
+  opacity: .88
+}
+
+.btn-ghost {
+  border-color: var(--line);
+  color: inherit
+}
+
+.admin-bar .btn-ghost {
+  border-color: rgba(255, 255, 255, 0.2)
+}
+
+.btn-ghost:not(:disabled):hover {
+  border-color: var(--sage-bright)
+}
+
+.btn-danger {
+  color: var(--bad);
+  border-color: transparent;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.btn-danger:hover {
+  border-color: var(--bad)
+}
+
+.btn-block {
+  width: 100%;
+  padding: 12px 16px
+}
+
+input[type="password"],
+input[type="search"] {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  width: 100%;
+}
+
+input[type="password"]:focus-visible,
+input[type="search"]:focus-visible {
+  outline: 2px solid var(--sage-bright);
+  outline-offset: 1px;
+}
+
+/* ─── cards ─── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.card h2 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+}
+
+main.admin-container {
+  padding-top: 28px;
+  padding-bottom: 56px
+}
+
+#dashboardView {
+  display: grid;
+  gap: 20px
+}
+
+/* Grid items default to min-width:auto and would grow to fit the wide table;
+   let them shrink so the table scrolls inside its own wrapper instead. */
+#dashboardView > *,
+.grid-2 > * {
+  min-width: 0
+}
+
+/* ─── sign in ─── */
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 60vh
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  display: grid;
+  gap: 10px;
+  padding: 32px;
+}
+
+.login-card h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 26px;
+  margin: 0;
+}
+
+.login-card p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5
+}
+
+.login-card label {
+  font-size: 13px;
+  font-weight: 500
+}
+
+.form-error {
+  color: var(--bad);
+  font-size: 13px;
+  min-height: 1em;
+  margin: 0 !important
+}
+
+.banner {
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+/* ─── stat tiles ─── */
+.tiles {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px
+}
+
+.tile-label {
+  font-size: 13px;
+  color: var(--text-2)
+}
+
+.tile-value {
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-hero .tile-value {
+  font-family: var(--serif);
+  font-size: 48px;
+  line-height: 1
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px
+}
+
+/* ─── daily column chart ─── */
+.chart {
+  position: relative;
+  height: 220px;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+}
+
+.chart-y {
+  position: relative;
+  height: 190px
+}
+
+.chart-y span {
+  position: absolute;
+  right: 8px;
+  transform: translateY(50%);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.chart-plot {
+  position: relative;
+  height: 190px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chart-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grid)
+}
+
+.chart-cols {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(30, 1fr);
+  gap: 2px;
+  align-items: end;
+}
+
+.chart-col {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: default;
+}
+
+.chart-bar {
+  width: 100%;
+  max-width: 18px;
+  background: var(--chart);
+  border-radius: 4px 4px 0 0;
+  transition: opacity .15s ease;
+}
+
+.chart-col:hover .chart-bar,
+.chart-col:focus-visible .chart-bar {
+  opacity: .75
+}
+
+.chart-col:focus-visible {
+  outline-offset: 0
+}
+
+.chart-x {
+  grid-column: 2;
+  position: relative;
+  height: 24px;
+}
+
+.chart-x span {
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chart-tip {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transform: translate(-50%, calc(-100% - 10px));
+  white-space: nowrap;
+}
+
+.chart-tip strong {
+  font-weight: 500
+}
+
+/* ─── source breakdown ─── */
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px
+}
+
+.source-row {
+  display: grid;
+  gap: 6px
+}
+
+.source-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px
+}
+
+.source-meta .count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2)
+}
+
+.source-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--grid);
+  overflow: hidden
+}
+
+.source-fill {
+  height: 100%;
+  background: var(--chart);
+  border-radius: 4px
+}
+
+/* ─── subscriber table ─── */
+.list-head .search {
+  width: min(320px, 100%)
+}
+
+.table-wrap {
+  /* positioned so absolutely-positioned children (visually-hidden labels) are clipped too */
+  position: relative;
+  overflow-x: auto;
+  margin: 0 -24px;
+  padding: 0 24px
+}
+
+table.subs {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  min-width: 640px
+}
+
+.subs th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.subs td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle
+}
+
+.subs tr:last-child td {
+  border-bottom: 0
+}
+
+.subs .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums
+}
+
+.subs .email {
+  font-weight: 500;
+  white-space: nowrap
+}
+
+.subs .when {
+  color: var(--text-2);
+  white-space: nowrap
+}
+
+.chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.mail-status {
+  font-size: 12.5px;
+  white-space: nowrap
+}
+
+.mail-status .ok {
+  color: var(--good)
+}
+
+.mail-status .fail {
+  color: var(--bad)
+}
+
+.mail-status .wait {
+  color: var(--muted)
+}
+
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px 0 16px;
+  margin: 0
+}
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap
+}
+
+.pager-btns {
+  display: flex;
+  gap: 8px
+}
+
+/* ─── responsive ─── */
+@media (max-width: 900px) {
+  .tiles {
+    grid-template-columns: repeat(3, 1fr)
+  }
+
+  .tile-hero {
+    grid-column: 1 / -1
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-container {
+    padding: 0 16px
+  }
+
+  .card {
+    padding: 18px 16px
+  }
+
+  .table-wrap {
+    margin: 0 -16px;
+    padding: 0 16px
+  }
+
+  .updated {
+    display: none
+  }
+
+  .tile-value {
+    font-size: 24px
+  }
+}

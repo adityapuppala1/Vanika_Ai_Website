@@ -25,9 +25,13 @@ if [ ! -d "$VENV_NAME" ]; then
     python3 -m venv $VENV_NAME
 fi
 
-# Activate venv
+# Activate venv (Scripts/ on Windows Git Bash, bin/ on Linux/macOS)
 echo "🔑 Activating virtual environment..."
-source $VENV_NAME/Scripts/activate
+if [ -f "$VENV_NAME/Scripts/activate" ]; then
+    source "$VENV_NAME/Scripts/activate"
+else
+    source "$VENV_NAME/bin/activate"
+fi
 
 # Install dependencies
 if [ -f "$REQUIREMENTS_FILE" ]; then

@@ -2,6 +2,8 @@
 import base64
 # pyrefly: ignore [missing-import]
 from azure.communication.email import EmailClient
+# pyrefly: ignore [missing-import]
+from starlette.concurrency import run_in_threadpool
 from config import settings
 
 AZURE_EMAIL_CONNECTION = settings.AZURE_COMMUNICATION_CONNECTION_STRING
@@ -9,7 +11,13 @@ EMAIL_PRIMARY_VANIKA = settings.EMAIL_PRIMARY_VANIKA
 EMAIL_BCC_FALLBACK_1 = settings.EMAIL_BCC_FALLBACK_1
 
 async def send_email(subject, html, to=None, reply=None, attachment=None, onlySender=False):
+    # The ACS SDK is synchronous and poller.result() waits for delivery;
+    # run it in a worker thread so it does not block the event loop.
+    return await run_in_threadpool(_send_email_sync, subject, html, to, reply, attachment, onlySender)
+
+def _send_email_sync(subject, html, to=None, reply=None, attachment=None, onlySender=False):
     if not AZURE_EMAIL_CONNECTION or not EMAIL_PRIMARY_VANIKA:
+        print("[ACS EMAIL ERROR] AZURE_COMMUNICATION_CONNECTION_STRING or EMAIL_PRIMARY_VANIKA is not set")
         return {"status": "error", "message": "ACS is not correctly configured"}
 
     try:

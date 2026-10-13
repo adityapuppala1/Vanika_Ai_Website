@@ -9,12 +9,13 @@ function cleanUrls() {
       server.middlewares.use((req, res, next) => {
         const url = req.url.split('?')[0];
         
-        if (url === '/demo') {
-          req.url = '/demo.html';
+        if (url === '/demo' || url === '/admin') {
+          req.url = `${url}.html`;
           return next();
         }
         
-        if (url !== '/' && !url.includes('.')) {
+        // Vite internals (/@vite/client, /@fs/...) and source modules must pass through
+        if (url !== '/' && !url.includes('.') && !url.startsWith('/@') && !url.startsWith('/src/') && !url.startsWith('/node_modules/')) {
           // Unknown navigation path, redirect to root
           res.writeHead(302, { Location: '/' });
           res.end();
@@ -33,7 +34,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        demo: resolve(__dirname, 'demo.html')
+        demo: resolve(__dirname, 'demo.html'),
+        admin: resolve(__dirname, 'admin.html')
       }
     }
   }

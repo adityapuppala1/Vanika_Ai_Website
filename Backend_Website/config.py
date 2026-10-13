@@ -18,8 +18,18 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
 
-    # Vanika Routes Access Key
+    # Vanika Routes Access Key (shipped in the public frontend bundle — a light
+    # filter, not a secret)
     VANIKA_ROUTES_KEY: str = os.getenv("VANIKA_ROUTES_KEY", "")
+
+    # Vanika waitlist
+    # Admin dashboard key (keep private; admin endpoints are disabled when empty)
+    VANIKA_ADMIN_KEY: str = os.getenv("VANIKA_ADMIN_KEY", "")
+    # Database for Vanika data; defaults to MONGODB_DB_NAME when empty
+    VANIKA_DB_NAME: str = os.getenv("VANIKA_DB_NAME", "")
+    VANIKA_WAITLIST_COLLECTION: str = os.getenv("VANIKA_WAITLIST_COLLECTION", "VanikaWaitlist")
+    # Max subscribe attempts per client IP per minute
+    VANIKA_SUBSCRIBE_RATE_LIMIT: int = int(os.getenv("VANIKA_SUBSCRIBE_RATE_LIMIT", 5))
 
     # MongoDB Atlas
     MONGODB_URI: str = os.getenv("MONGODB_URI", "")
@@ -60,6 +70,9 @@ class Settings(BaseSettings):
 # Instantiate settings
 settings = Settings()
 
+if settings.JWT_SECRET in ("", "super-secret-jwt-key"):
+    print("[Config] [WARN] JWT_SECRET is empty or the insecure default. Set a strong value in the environment.")
+
 
 # =========================================================
 # MongoDB Connection Setup + DEV-LOGGING
@@ -80,6 +93,15 @@ if settings.MONGODB_URI:
 # Collections (MUST NOT use truthiness)
 investors_profiles = _db.get_collection("InvestorsProfiles") if _db is not None else None
 investors_content = _db.get_collection("InvestorsContent") if _db is not None else None
+
+
+def get_vanika_db():
+    """Database holding Vanika data, or None when MongoDB is not configured."""
+    if _mongo_client is None:
+        return None
+    if settings.VANIKA_DB_NAME:
+        return _mongo_client[settings.VANIKA_DB_NAME]
+    return _db
 
 
 async def print_mongo_collections():
@@ -226,6 +248,7 @@ __all__ = [
     "settings",
     "investors_profiles",
     "investors_content",
+    "get_vanika_db",
     "ensure_indexes",
     "azure_blob_service_client",
     "azure_container_name",

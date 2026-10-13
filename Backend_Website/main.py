@@ -1,22 +1,50 @@
 # main.py
+import asyncio
 import os
-from fastapi import FastAPI, Request, HTTPException
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
+
+# Load Environment before anything reads os.environ
+load_dotenv()
+
 # from InvestorDesk.config import ensure_indexes, get_collection_data, print_mongo_collections, setup_initial_schema
 
 # Routers
 from Anvi_Mailing.routes import router as mailing_router
 from InvestorDesk.routes import router as investor_router
-from Vanika_Mailing.routes import router as vanika_router
+from Vanika_Mailing.routes import router as vanika_router, get_waitlist, ensure_waitlist_indexes
 
-# Load Environment
-load_dotenv()
+_background_tasks = set()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # await ensure_indexes()
+    # await setup_initial_schema()
+    # await print_mongo_collections()
+    # await get_collection_data("InvestorsProfiles")
+    # await get_collection_data("InvestorsContent")
+
+    waitlist = get_waitlist()
+    if waitlist is None:
+        print("[Vanika] [WARN] MongoDB not configured — waitlist sign-ups will NOT be stored.")
+    else:
+        # Don't block startup on Atlas; keep a reference so the task isn't garbage-collected.
+        # If it fails, the first sign-up retries it.
+        task = asyncio.create_task(ensure_waitlist_indexes(waitlist))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    print("Backend started successfully.")
+    print("/////////////////////////////////////////////////////////////")
+    yield
+
 
 # app = FastAPI(docs_url=None, redoc_url=None)
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # ---------------------------------------------------------
 # Register routers
@@ -38,18 +66,21 @@ async def favicon():
 # ---------------------------------------------------------
 # CORS CONFIG
 # ---------------------------------------------------------
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+CORS_ORIGINS = [o.strip().rstrip("/") for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+ALLOW_ANY_ORIGIN = "*" in CORS_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=[
         "Content-Type",
         "Accept",
         "Authorization",
+        "X-Admin-Key",
     ],
+    expose_headers=["Content-Disposition"],
     max_age=600,
 )
 
@@ -66,11 +97,10 @@ async def origin_firewall(request: Request, call_next):
     origin = request.headers.get("origin")
     path = request.url.path
 
-    allowed = CORS_ORIGINS
-
-    if origin and origin not in allowed:
+    if origin and not ALLOW_ANY_ORIGIN and origin.rstrip("/") not in CORS_ORIGINS:
         print(f"🚫 CORS BLOCKED | {origin} → {path}")
-        raise HTTPException(status_code=403, detail="CORS_BLOCKED")
+        # Return (not raise): exceptions raised in middleware become 500s
+        return JSONResponse(status_code=403, content={"detail": "CORS_BLOCKED"})
 
     return await call_next(request)
 
@@ -80,17 +110,3 @@ async def origin_firewall(request: Request, call_next):
 @app.get("/")
 def home():
     return {"msg": "Anvi FastAPI-Mail-Backend Running ✅"}
-
-# ---------------------------------------------------------
-# Startup logs
-# ---------------------------------------------------------
-@app.on_event("startup")
-async def on_startup():
-    # await ensure_indexes()
-    # await setup_initial_schema()
-    # await print_mongo_collections()
-    # await get_collection_data("InvestorsProfiles")
-    # await get_collection_data("InvestorsContent")
-    print("Database indexes ensured.")
-    print("Backend started successfully.")
-    print("/////////////////////////////////////////////////////////////")

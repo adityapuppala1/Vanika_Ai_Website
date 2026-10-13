@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Waitlist Admin · Vanika.AI</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Lora:wght@500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles/admin.css" />
+</head>
+
+<body>
+  <header class="admin-bar">
+    <div class="admin-container admin-bar-row">
+      <div class="admin-title">
+        <span class="brand">Vanika<span class="dot">.AI</span></span>
+        <span class="admin-tag">Waitlist</span>
+      </div>
+      <div class="admin-actions" id="toolbar" hidden>
+        <span class="updated" id="updatedAt" aria-live="polite"></span>
+        <button type="button" class="btn btn-ghost" id="refreshBtn">Refresh</button>
+        <button type="button" class="btn btn-primary" id="exportBtn">Export CSV</button>
+        <button type="button" class="btn btn-ghost" id="signOutBtn">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin-container">
+    <!-- Sign in -->
+    <section class="login" id="loginView" aria-labelledby="loginTitle">
+      <form class="card login-card" id="loginForm">
+        <h1 id="loginTitle">Waitlist dashboard</h1>
+        <p class="muted">Enter the admin key (<code>VANIKA_ADMIN_KEY</code> on the backend) to see who has joined.</p>
+        <label for="adminKey">Admin key</label>
+        <input id="adminKey" type="password" autocomplete="current-password" required aria-describedby="loginError" />
+        <p class="form-error" id="loginError" role="alert"></p>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Sign in</button>
+      </form>
+    </section>
+
+    <!-- Dashboard -->
+    <div id="dashboardView" hidden>
+      <div class="banner" id="banner" role="alert" hidden></div>
+
+      <section class="tiles" aria-label="Sign-up totals">
+        <div class="card tile tile-hero">
+          <span class="tile-label">People on the waitlist</span>
+          <span class="tile-value" id="statTotal">–</span>
+        </div>
+        <div class="card tile">
+          <span class="tile-label">Today</span>
+          <span class="tile-value" id="statToday">–</span>
+        </div>
+        <div class="card tile">
+          <span class="tile-label">Last 7 days</span>
+          <span class="tile-value" id="stat7">–</span>
+        </div>
+        <div class="card tile">
+          <span class="tile-label">Last 30 days</span>
+          <span class="tile-value" id="stat30">–</span>
+        </div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card" aria-labelledby="chartTitle">
+          <div class="card-head">
+            <h2 id="chartTitle">New sign-ups per day</h2>
+            <span class="muted small">Last 30 days · UTC</span>
+          </div>
+          <div class="chart" id="dailyChart"></div>
+          <table class="visually-hidden" id="dailyTable">
+            <caption>New sign-ups per day, last 30 days</caption>
+            <thead>
+              <tr><th scope="col">Date</th><th scope="col">Sign-ups</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <section class="card" aria-labelledby="sourceTitle">
+          <div class="card-head">
+            <h2 id="sourceTitle">Where people signed up</h2>
+          </div>
+          <ul class="sources" id="sourceList"></ul>
+        </section>
+      </div>
+
+      <section class="card" aria-labelledby="listTitle">
+        <div class="card-head list-head">
+          <h2 id="listTitle">Subscribers</h2>
+          <div class="search">
+            <label class="visually-hidden" for="searchInput">Search by email</label>
+            <input id="searchInput" type="search" placeholder="Search by email" autocomplete="off" />
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="subs">
+            <thead>
+              <tr>
+                <th scope="col">Email</th>
+                <th scope="col">Joined</th>
+                <th scope="col">Form</th>
+                <th scope="col" class="num">Sign-ups</th>
+                <th scope="col">Emails sent</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="subsBody"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="emptyState" hidden></p>
+        <div class="pager">
+          <span class="muted small" id="pageInfo" aria-live="polite"></span>
+          <div class="pager-btns">
+            <button type="button" class="btn btn-ghost" id="prevBtn">Previous</button>
+            <button type="button" class="btn btn-ghost" id="nextBtn">Next</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="chart-tip" id="chartTip" role="status" hidden></div>
+
+  <script type="module" src="/src/admin.js"></script>
+</body>
+
+</html>

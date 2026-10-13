@@ -2,5 +2,7 @@ User-agent: *
 Allow: /
 Disallow: /demo
 Disallow: /demo.html
+Disallow: /admin
+Disallow: /admin.html
 
 Sitemap: https://vanika.ai/sitemap.xml

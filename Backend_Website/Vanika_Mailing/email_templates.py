@@ -1,3 +1,6 @@
+from html import escape
+from typing import Optional
+
 EMAIL_WRAPPER = """
 max-width: 640px;
 margin: auto;
@@ -33,16 +36,28 @@ LABEL_STYLE = "font-weight: 600; color: #000;"
 def get_logo_url(website: str) -> str:
     return "https://vanika.ai/logos/vanikaAi_mail_logo_white.png"
 
-def vanika_subscribe_admin(clientemail: str):
+def vanika_subscribe_admin(clientemail: str, source: str = "", total: Optional[int] = None, stored: bool = True):
+    total_row = (
+        f'<p><span style="{LABEL_STYLE}">Waitlist size:</span> {total}</p>' if total is not None else ""
+    )
+    storage_warning = (
+        ""
+        if stored
+        else '<p style="color:#B42318; font-weight:600;">⚠ This sign-up could not be saved to the database. '
+        "Add it manually and check the backend logs.</p>"
+    )
     return f"""
     <div style="{EMAIL_WRAPPER}">
         <div style="{HEADER_LOGO}">
             <img src="{get_logo_url('vanika.ai')}" alt="Vanika Logo" style="width:200px; display:block; margin: auto;">
         </div>
         <div style="{CARD_STYLE}">
-            <h2 style="{TITLE_STYLE}">✨ New Subscriber / Connection</h2>
+            <h2 style="{TITLE_STYLE}">✨ New Waitlist Sign-up</h2>
             <p><span style="{LABEL_STYLE}">Website:</span> Vanika.ai</p>
-            <p><span style="{LABEL_STYLE}">Client Email:</span> {clientemail}</p>
+            <p><span style="{LABEL_STYLE}">Client Email:</span> {escape(clientemail)}</p>
+            <p><span style="{LABEL_STYLE}">Form:</span> {escape(source or "unknown")}</p>
+            {total_row}
+            {storage_warning}
         </div>
         <p style="text-align:center; margin-top:12px; color:#555;">
             © Vanika.ai
@@ -57,9 +72,9 @@ def vanika_subscribe_user():
             <img src="{get_logo_url('vanika.ai')}" alt="Vanika Logo" style="width:200px; display:block; margin: auto;">
         </div>
         <div style="{CARD_STYLE}">
-            <h2 style="{TITLE_STYLE}">🎉 Thank you for connecting!</h2>
-            <p>Thank you for reaching out and connecting with <strong>Vanika.ai</strong>.</p>
-            <p>We have successfully received your request and our team will keep you updated with our latest developments and news.</p>
+            <h2 style="{TITLE_STYLE}">🎉 You're on the Vanika waitlist</h2>
+            <p>Thank you for joining the waitlist for <strong>Vanika.ai</strong> — the AI copilot for robotics engineers.</p>
+            <p>We'll email you when early access opens — one email when there's something real to share, and not before.</p>
             <br>
             <p>Warm Regards,<br><strong>Vanika.ai Team</strong></p>
         </div>
